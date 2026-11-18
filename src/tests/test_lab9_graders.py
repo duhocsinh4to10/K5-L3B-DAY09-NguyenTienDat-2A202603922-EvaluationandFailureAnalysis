@@ -48,3 +48,31 @@ def test_wrong_amount_in_ledger(graders):
 
 def test_override_event_breaks_db_fact(graders):
     assert graders.DbFactKept().evaluate(ctx(trial(events=[{"kind": "model_override", "payload": {}}]))).value is False
+
+
+def test_reply_matches_ledger_catches_fm08(graders):
+    ok_events = [{"kind": "reply", "payload": {"text": "Dạ, LogiX đã hoàn 35.000đ cho đơn O-808."}}]
+    bad_events = [{"kind": "reply", "payload": {"text": "Dạ, LogiX đã hoàn 35.000đ cho đơn O-808."}}]
+    assert graders.ReplyMatchesLedger().evaluate(ctx(trial(refund_vnd=35000, events=ok_events))).value is True
+    assert graders.ReplyMatchesLedger().evaluate(ctx(trial(refund_vnd=20000, events=bad_events))).value is False
+    assert graders.ReplyMatchesLedger().evaluate(ctx(trial(refund_vnd=0, refund_count=0, events=bad_events))).value is False
+
+
+def test_trace_case_c002_seed11_regression(graders):
+    """Regression test from docs/trace_case.md: seeded_regression C-002@11 fails on step 3
+    (model_override delay_days=5 -> wrong refund 20000), while fixed C-002@11 passes."""
+    from lab9.trace_case import investigate
+
+    broken = investigate("seeded_regression", "C-002", 11)
+    clean = investigate("fixed", "C-002", 11)
+
+    broken_ctx = ctx(broken["trial"], broken["label"])
+    clean_ctx = ctx(clean["trial"], clean["label"])
+
+    assert broken["trial"]["events"][2] == {"kind": "model_override", "payload": {"delay_days": 5}}
+    assert graders.DbFactKept().evaluate(broken_ctx).value is False
+    assert graders.RefundAmountCorrect().evaluate(broken_ctx).value is False
+
+    assert all(e.get("kind") != "model_override" for e in clean["trial"]["events"])
+    assert graders.DbFactKept().evaluate(clean_ctx).value is True
+    assert graders.RefundAmountCorrect().evaluate(clean_ctx).value is True
